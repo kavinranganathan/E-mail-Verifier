@@ -356,5 +356,20 @@ curl -X POST https://your-app.vercel.app<span class="k">/api/verify</span> \
         c.addEventListener("click", () => { $("email").value = c.dataset.fill; run(); }),
       );
     </script>
+
+    <!-- Vercel Web Analytics (static-site integration). Only loads on a Vercel
+         deployment; 404s harmlessly on localhost. Enable Analytics for the
+         project in the Vercel dashboard for data to appear. -->
+    <script>
+      window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+    </script>
+    <script defer src="/_vercel/insights/script.js"></script>
+
+    <!-- Vercel Speed Insights (static-site integration). Same rules as Analytics:
+         loads only on a Vercel deployment, enable it in the dashboard. -->
+    <script>
+      window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };
+    </script>
+    <script defer src="/_vercel/speed-insights/script.js"></script>
   </body>
 </html>
