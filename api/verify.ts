@@ -1,19 +1,21 @@
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { verifyEmail } from "../src/verify.js";
 
-// Vercel Function (Node, Fluid Compute) using the Web-standard handler signature.
+// Vercel Function — Node runtime (required: we use node:dns for MX lookups, which
+// the Edge runtime does not provide). Classic (req, res) signature.
 //
-// Auth: send `x-api-key`. Keys are read from the API_KEYS env var (comma-separated).
+// Auth: send `x-api-key`. Keys come from the API_KEYS env var (comma-separated).
 // If API_KEYS is unset (local dev), auth is skipped.
 //
-// Error envelope is consistent across all failures: { error: { code, message } }.
+// CORS: open by default so the inline widget can call this from a customer's site.
 
 interface RateState {
   count: number;
   resetAt: number;
 }
 
-// NOTE: in-memory limiter is per-instance only. Fine for v1 / abuse-speed-bumping.
-// PLAN: move to a shared store (Vercel KV / Upstash) for real quotas.
+// NOTE: in-memory limiter is per-instance only — an abuse speed-bump, not a quota.
+// PLAN: move to a shared store (Vercel KV / Upstash) before billing on it.
 const WINDOW_MS = 60_000;
 const MAX_PER_WINDOW = 60;
 const buckets = new Map<string, RateState>();
@@ -32,17 +34,6 @@ function rateLimit(key: string): { ok: boolean; retryAfter: number } {
   return { ok: true, retryAfter: 0 };
 }
 
-function json(body: unknown, status: number, headers: Record<string, string> = {}): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json", ...headers },
-  });
-}
-
-function err(code: string, message: string, status: number, headers?: Record<string, string>): Response {
-  return json({ error: { code, message } }, status, headers);
-}
-
 function configuredKeys(): string[] {
   return (process.env.API_KEYS ?? "")
     .split(",")
@@ -50,34 +41,55 @@ function configuredKeys(): string[] {
     .filter(Boolean);
 }
 
-export default async function handler(req: Request): Promise<Response> {
+function fail(res: VercelResponse, code: string, message: string, status: number): void {
+  res.status(status).json({ error: { code, message } });
+}
+
+function readEmail(body: unknown): string | undefined {
+  let parsed: unknown = body;
+  if (typeof body === "string") {
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      return undefined;
+    }
+  }
+  const email = (parsed as { email?: unknown } | null)?.email;
+  return typeof email === "string" && email.length > 0 ? email : undefined;
+}
+
+export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
+  // CORS — let the widget call from any origin.
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "content-type, x-api-key");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
   if (req.method !== "POST") {
-    return err("method_not_allowed", "Use POST.", 405, { allow: "POST" });
+    res.setHeader("Allow", "POST, OPTIONS");
+    return fail(res, "method_not_allowed", "Use POST.", 405);
   }
 
   const keys = configuredKeys();
-  const provided = req.headers.get("x-api-key") ?? "";
+  const provided = (req.headers["x-api-key"] as string | undefined) ?? "";
   if (keys.length > 0 && !keys.includes(provided)) {
-    return err("unauthorized", "Missing or invalid API key (header: x-api-key).", 401);
+    return fail(res, "unauthorized", "Missing or invalid API key (header: x-api-key).", 401);
   }
 
   const rl = rateLimit(provided || "anon");
   if (!rl.ok) {
-    return err("rate_limited", "Too many requests.", 429, { "retry-after": String(rl.retryAfter) });
+    res.setHeader("Retry-After", String(rl.retryAfter));
+    return fail(res, "rate_limited", "Too many requests.", 429);
   }
 
-  let payload: unknown;
-  try {
-    payload = await req.json();
-  } catch {
-    return err("invalid_body", "Request body must be valid JSON.", 422);
-  }
-
-  const email = (payload as { email?: unknown })?.email;
-  if (typeof email !== "string" || email.length === 0) {
-    return err("invalid_input", "Field 'email' is required and must be a string.", 422);
+  const email = readEmail(req.body);
+  if (!email) {
+    return fail(res, "invalid_input", "Field 'email' is required and must be a non-empty string.", 422);
   }
 
   const result = await verifyEmail(email);
-  return json(result, 200);
+  res.status(200).json(result);
 }
