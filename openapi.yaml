@@ -1,0 +1,87 @@
+openapi: 3.1.0
+info:
+  title: Email Verifier API
+  version: 0.1.0
+  description: Verify whether an email address is deliverable. v1 ships cheap checks
+    (syntax, MX, disposable, role, free-provider). The SMTP mailbox probe is deferred
+    to v2, so confirmed-deliverable verdicts require that probe.
+servers:
+  - url: https://your-app.vercel.app
+paths:
+  /api/verify:
+    post:
+      summary: Verify a single email address
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  example: alice@example.com
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyResult"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: Invalid request body or input
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+  schemas:
+    Verdict:
+      type: string
+      enum: [deliverable, risky, undeliverable, unknown]
+    Signals:
+      type: object
+      properties:
+        syntaxValid: { type: boolean }
+        domainHasMx: { type: boolean }
+        disposable: { type: boolean }
+        roleBased: { type: boolean }
+        freeProvider: { type: boolean }
+        mailbox:
+          type: string
+          enum: [exists, not_found, unknown]
+    VerifyResult:
+      type: object
+      properties:
+        email: { type: string }
+        normalized: { type: string }
+        verdict: { $ref: "#/components/schemas/Verdict" }
+        score: { type: integer, minimum: 0, maximum: 100 }
+        signals: { $ref: "#/components/schemas/Signals" }
+        suggestion: { type: string }
+        reason: { type: string }
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }

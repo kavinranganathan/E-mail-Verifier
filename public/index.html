@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Deliverable — know if an email is real before you send</title>
+    <meta name="description" content="Fast email verification. Syntax, mail server, disposable and role detection, with an honest verdict." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --paper: #fbf8f2;
+        --paper-2: #f3eee3;
+        --ink: #16140f;
+        --ink-soft: #5c574c;
+        --line: #e3dccc;
+        --good: #1f7a4d;
+        --risky: #b4690e;
+        --bad: #b42318;
+        --unknown: #6b6b6b;
+        --accent: var(--unknown);
+        --shadow: 0 1px 2px rgba(22, 20, 15, 0.04), 0 12px 32px rgba(22, 20, 15, 0.06);
+        --serif: "Fraunces", Georgia, serif;
+        --sans: "Hanken Grotesk", system-ui, sans-serif;
+        --mono: "JetBrains Mono", ui-monospace, monospace;
+      }
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      body {
+        margin: 0;
+        background:
+          radial-gradient(120% 80% at 50% -10%, var(--paper-2), transparent 60%),
+          var(--paper);
+        color: var(--ink);
+        font-family: var(--sans);
+        -webkit-font-smoothing: antialiased;
+        line-height: 1.55;
+      }
+      .wrap { max-width: 1020px; margin: 0 auto; padding: 0 24px; }
+
+      /* nav */
+      header.bar {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 22px 0; border-bottom: 1px solid var(--line);
+      }
+      .wordmark { font-family: var(--serif); font-weight: 600; font-size: 21px; letter-spacing: -0.02em; }
+      .wordmark b { color: var(--good); }
+      nav { display: flex; gap: 26px; }
+      nav a { color: var(--ink-soft); text-decoration: none; font-size: 14px; font-weight: 500; }
+      nav a:hover { color: var(--ink); }
+
+      /* hero */
+      .hero { padding: 76px 0 40px; text-align: center; }
+      .eyebrow {
+        font-family: var(--mono); font-size: 12px; letter-spacing: 0.18em;
+        text-transform: uppercase; color: var(--ink-soft); margin: 0 0 20px;
+      }
+      h1 {
+        font-family: var(--serif); font-weight: 500; letter-spacing: -0.025em;
+        font-size: clamp(38px, 6vw, 68px); line-height: 1.02; margin: 0 auto 18px;
+        max-width: 14ch;
+      }
+      h1 em { font-style: italic; color: var(--good); }
+      .sub { color: var(--ink-soft); font-size: 18px; max-width: 48ch; margin: 0 auto 40px; }
+
+      /* tool */
+      .tool { max-width: 620px; margin: 0 auto; }
+      .field {
+        display: flex; gap: 10px; align-items: stretch;
+        background: #fff; border: 1px solid var(--line); border-radius: 16px;
+        padding: 10px; box-shadow: var(--shadow); transition: border-color 0.2s, box-shadow 0.2s;
+      }
+      .field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent), var(--shadow); }
+      .field input {
+        flex: 1; border: 0; outline: 0; background: transparent;
+        font-family: var(--mono); font-size: 17px; color: var(--ink); padding: 12px 14px;
+      }
+      .field input::placeholder { color: #b3ab99; }
+      .field button {
+        border: 0; background: var(--ink); color: var(--paper);
+        font-family: var(--sans); font-weight: 600; font-size: 15px;
+        padding: 0 24px; border-radius: 10px; cursor: pointer; transition: transform 0.08s, background 0.2s;
+      }
+      .field button:hover { background: #2c2820; }
+      .field button:active { transform: translateY(1px); }
+      .examples { margin: 16px 2px 0; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+      .examples span { color: var(--ink-soft); font-size: 13px; margin-right: 2px; }
+      .chip {
+        font-family: var(--mono); font-size: 12.5px; color: var(--ink-soft);
+        background: var(--paper-2); border: 1px solid var(--line); border-radius: 999px;
+        padding: 4px 11px; cursor: pointer; transition: all 0.15s;
+      }
+      .chip:hover { color: var(--ink); border-color: #cdc3ad; }
+
+      /* result */
+      .result {
+        margin: 30px auto 0; max-width: 620px; background: #fff;
+        border: 1px solid var(--line); border-left: 4px solid var(--accent);
+        border-radius: 16px; box-shadow: var(--shadow); overflow: hidden;
+        opacity: 0; transform: translateY(14px) scale(0.99);
+        transition: opacity 0.45s ease, transform 0.45s cubic-bezier(0.2, 0.7, 0.2, 1), border-color 0.3s;
+        pointer-events: none;
+      }
+      .result.show { opacity: 1; transform: none; pointer-events: auto; }
+      .result-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 22px 24px 16px; }
+      .verdict {
+        font-family: var(--serif); font-style: italic; font-weight: 500;
+        font-size: 34px; letter-spacing: -0.02em; color: var(--accent); line-height: 1; text-transform: capitalize;
+      }
+      .verdict-email { font-family: var(--mono); font-size: 13px; color: var(--ink-soft); margin-top: 6px; word-break: break-all; }
+      .score { text-align: right; flex-shrink: 0; }
+      .score b { font-family: var(--serif); font-size: 30px; font-weight: 600; color: var(--ink); }
+      .score small { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft); }
+      .reason { padding: 0 24px 12px; color: var(--ink-soft); font-size: 14.5px; }
+      .suggest { margin: 0 24px 18px; }
+      .suggest button {
+        font-family: var(--mono); font-size: 13px; background: color-mix(in srgb, var(--risky) 10%, #fff);
+        border: 1px solid color-mix(in srgb, var(--risky) 35%, var(--line)); color: var(--risky);
+        border-radius: 10px; padding: 9px 14px; cursor: pointer; width: 100%; text-align: left;
+      }
+      .suggest button:hover { background: color-mix(in srgb, var(--risky) 16%, #fff); }
+      .signals { border-top: 1px solid var(--line); }
+      .sig {
+        display: flex; align-items: center; gap: 12px; padding: 13px 24px;
+        border-bottom: 1px solid var(--paper-2); font-size: 14.5px;
+        opacity: 0; transform: translateX(-6px); transition: opacity 0.3s, transform 0.3s;
+      }
+      .result.show .sig { opacity: 1; transform: none; }
+      .sig:last-child { border-bottom: 0; }
+      .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+      .dot.good { background: var(--good); }
+      .dot.risky { background: var(--risky); }
+      .dot.bad { background: var(--bad); }
+      .dot.neutral { background: #c8bfa9; }
+      .sig .label { flex: 1; }
+      .sig .val { font-family: var(--mono); font-size: 12.5px; color: var(--ink-soft); }
+      .shimmer { color: var(--ink-soft); font-family: var(--mono); font-size: 13px; padding: 18px 24px; }
+
+      /* sections */
+      section.block { padding: 72px 0; border-top: 1px solid var(--line); }
+      .block h2 { font-family: var(--serif); font-weight: 500; font-size: 30px; letter-spacing: -0.02em; margin: 0 0 8px; }
+      .block .lede { color: var(--ink-soft); margin: 0 0 36px; max-width: 52ch; }
+      .checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+      .check { background: var(--paper); padding: 22px; }
+      .check h3 { font-size: 15px; margin: 0 0 6px; display: flex; align-items: center; gap: 8px; }
+      .check h3 .k { font-family: var(--mono); font-size: 11px; color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 30%, var(--line)); border-radius: 5px; padding: 1px 6px; }
+      .check p { margin: 0; color: var(--ink-soft); font-size: 13.5px; }
+
+      /* dev */
+      .code {
+        background: var(--ink); color: #f4efe4; border-radius: 14px; padding: 22px 24px;
+        font-family: var(--mono); font-size: 13px; line-height: 1.7; overflow-x: auto;
+      }
+      .code .c { color: #9a937f; }
+      .code .s { color: #8fcaa2; }
+      .code .k { color: #e8b87f; }
+      footer { border-top: 1px solid var(--line); padding: 40px 0 56px; color: var(--ink-soft); font-size: 13.5px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+      footer a { color: var(--ink-soft); }
+
+      @media (max-width: 560px) {
+        .field { flex-direction: column; }
+        .field button { padding: 12px; }
+        .result-head { flex-direction: column; }
+        .score { text-align: left; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * { transition: none !important; animation: none !important; }
+      }
+      /* load entrance */
+      .fade-up { opacity: 0; transform: translateY(16px); animation: fadeUp 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) forwards; }
+      .d1 { animation-delay: 0.05s; } .d2 { animation-delay: 0.15s; } .d3 { animation-delay: 0.25s; } .d4 { animation-delay: 0.35s; }
+      @keyframes fadeUp { to { opacity: 1; transform: none; } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="bar">
+        <div class="wordmark">Deliver<b>able.</b></div>
+        <nav>
+          <a href="#checks">What we check</a>
+          <a href="#api">API</a>
+          <a href="#" id="ghlink">GitHub</a>
+        </nav>
+      </header>
+
+      <main class="hero">
+        <p class="eyebrow fade-up d1">Email verification</p>
+        <h1 class="fade-up d1">Know if an email is <em>real</em> before you send.</h1>
+        <p class="sub fade-up d2">
+          Syntax, mail server, disposable and role detection — one verdict with the
+          confidence score behind it. Risk flags are called out; the score stays capped
+          until a mailbox is actually confirmed.
+        </p>
+
+        <div class="tool fade-up d3">
+          <form class="field" id="form" autocomplete="off">
+            <input id="email" type="email" placeholder="you@company.com" aria-label="Email to verify" />
+            <button type="submit">Verify</button>
+          </form>
+          <div class="examples">
+            <span>Try:</span>
+            <button class="chip" data-fill="bob@gmial.com">bob@gmial.com</button>
+            <button class="chip" data-fill="alice@gmail.com">alice@gmail.com</button>
+            <button class="chip" data-fill="info@github.com">info@github.com</button>
+            <button class="chip" data-fill="not-an-email">not-an-email</button>
+          </div>
+
+          <div class="result" id="result" aria-live="polite">
+            <div class="result-head">
+              <div>
+                <div class="verdict" id="verdict">—</div>
+                <div class="verdict-email" id="r-email"></div>
+              </div>
+              <div class="score"><b id="r-score">0</b><small>confidence</small></div>
+            </div>
+            <div class="reason" id="r-reason"></div>
+            <div class="suggest" id="r-suggest" hidden></div>
+            <div class="signals" id="r-signals"></div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <section class="block" id="checks">
+      <div class="wrap">
+        <h2>What we check</h2>
+        <p class="lede">Each signal is returned alongside the verdict, so you can set your own threshold.</p>
+        <div class="checks">
+          <div class="check"><h3>Syntax</h3><p>RFC-5322 structure. Catches typos and malformed addresses instantly.</p></div>
+          <div class="check"><h3>Mail server</h3><p>Looks up MX records. A domain with no mail server can't receive anything.</p></div>
+          <div class="check"><h3>Disposable</h3><p>Flags throwaway providers like Mailinator and 10-minute mail.</p></div>
+          <div class="check"><h3>Role address</h3><p>Detects info@, sales@, admin@ — deliverable, but rarely a real person.</p></div>
+          <div class="check"><h3>Free provider</h3><p>Notes Gmail, Outlook, iCloud and friends. Informational, never penalized.</p></div>
+          <div class="check"><h3>Mailbox <span class="k">v2</span></h3><p>SMTP mailbox confirmation. Coming next — until then a clean address scores up to 80, capped until we confirm the inbox.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="api">
+      <div class="wrap">
+        <h2>Built for developers</h2>
+        <p class="lede">One endpoint, a typed client, and a drop-in widget that verifies as your users type.</p>
+        <div class="code">
+<span class="c"># Verify a single address</span>
+curl -X POST https://your-app.vercel.app<span class="k">/api/verify</span> \
+  -H <span class="s">'content-type: application/json'</span> \
+  -H <span class="s">'x-api-key: pk_live_...'</span> \
+  -d <span class="s">'{"email":"alice@example.com"}'</span>
+
+<span class="c"># → { "verdict": "risky", "score": 70, "signals": {…}, "reason": "…" }</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="wrap">
+      <footer>
+        <span>Deliverable — honest email verification.</span>
+        <span>v1 · syntax · MX · disposable · role · free-provider</span>
+      </footer>
+    </div>
+
+    <script>
+      const API_BASE = ""; // same origin
+      const $ = (id) => document.getElementById(id);
+      const result = $("result");
+      const VERDICT_VAR = { deliverable: "--good", risky: "--risky", undeliverable: "--bad", unknown: "--unknown" };
+
+      function signalRows(s) {
+        const rows = [];
+        const row = (label, state, val) => ({ label, state, val });
+        rows.push(row("Syntax", s.syntaxValid ? "good" : "bad", s.syntaxValid ? "valid" : "invalid"));
+        rows.push(row("Mail server (MX)", s.domainHasMx ? "good" : "bad", s.domainHasMx ? "present" : "none"));
+        rows.push(row("Disposable", s.disposable ? "risky" : "good", s.disposable ? "yes" : "no"));
+        rows.push(row("Role address", s.roleBased ? "risky" : "good", s.roleBased ? "yes" : "no"));
+        rows.push(row("Free provider", "neutral", s.freeProvider ? "yes" : "no"));
+        const mb = { exists: ["good", "exists"], not_found: ["bad", "not found"], unknown: ["neutral", "not checked (v2)"] }[s.mailbox];
+        rows.push(row("Mailbox", mb[0], mb[1]));
+        return rows;
+      }
+
+      function render(r) {
+        document.documentElement.style.setProperty("--accent", `var(${VERDICT_VAR[r.verdict] || "--unknown"})`);
+        $("verdict").textContent = r.verdict;
+        $("verdict").style.color = `var(${VERDICT_VAR[r.verdict] || "--unknown"})`;
+        $("r-email").textContent = r.normalized;
+        $("r-score").textContent = r.score;
+        $("r-reason").textContent = r.reason;
+
+        const sug = $("r-suggest");
+        if (r.suggestion) {
+          sug.hidden = false;
+          sug.innerHTML = `<button type="button">Did you mean <strong>${r.suggestion}</strong>? &nbsp;Use it →</button>`;
+          sug.querySelector("button").onclick = () => { $("email").value = r.suggestion; run(); };
+        } else { sug.hidden = true; }
+
+        const box = $("r-signals");
+        box.innerHTML = "";
+        signalRows(r.signals).forEach((row, i) => {
+          const el = document.createElement("div");
+          el.className = "sig";
+          el.style.transitionDelay = `${0.06 * i + 0.1}s`;
+          el.innerHTML = `<span class="dot ${row.state}"></span><span class="label">${row.label}</span><span class="val">${row.val}</span>`;
+          box.appendChild(el);
+        });
+        result.classList.add("show");
+      }
+
+      function loading() {
+        result.classList.add("show");
+        $("verdict").textContent = "Checking";
+        $("verdict").style.color = "var(--unknown)";
+        document.documentElement.style.setProperty("--accent", "var(--unknown)");
+        $("r-email").textContent = $("email").value.trim();
+        $("r-reason").textContent = "";
+        $("r-score").textContent = "·";
+        $("r-suggest").hidden = true;
+        $("r-signals").innerHTML = `<div class="shimmer">Running checks…</div>`;
+      }
+
+      let inflight = 0;
+      async function run() {
+        const email = $("email").value.trim();
+        if (!email) { result.classList.remove("show"); return; }
+        const seq = ++inflight;
+        loading();
+        try {
+          const res = await fetch(API_BASE + "/api/verify", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ email }),
+          });
+          const r = await res.json();
+          if (seq !== inflight) return; // stale
+          if (!res.ok) {
+            $("verdict").textContent = "Error";
+            $("r-reason").textContent = (r.error && r.error.message) || "Request failed.";
+            $("r-signals").innerHTML = "";
+            return;
+          }
+          render(r);
+        } catch (e) {
+          if (seq !== inflight) return;
+          $("verdict").textContent = "Offline";
+          $("r-reason").textContent = "Could not reach the verifier.";
+        }
+      }
+
+      $("form").addEventListener("submit", (e) => { e.preventDefault(); run(); });
+      let t;
+      $("email").addEventListener("input", () => { clearTimeout(t); t = setTimeout(run, 450); });
+      document.querySelectorAll(".chip").forEach((c) =>
+        c.addEventListener("click", () => { $("email").value = c.dataset.fill; run(); }),
+      );
+    </script>
+  </body>
+</html>
